@@ -221,24 +221,63 @@ LIBC_HOOK_PATCHES = {
     "exit_monitor": [
         ("interceptor.attach", "// interceptor.attach"),
     ],
-
-    # gumexceptor-posix.c: disable signal/sigaction replacement
-    # Verified exact lines in 17.7.2:
-    #   gum_interceptor_replace (interceptor, gum_original_signal,
-    #       gum_exceptor_backend_replacement_signal, self, NULL);
-    #   gum_interceptor_replace (interceptor, gum_original_sigaction,
-    #       gum_exceptor_backend_replacement_sigaction, self, NULL);
-    "exceptor": [
-        ("gum_interceptor_replace (interceptor, gum_original_signal,",
-         "// gum_interceptor_replace (interceptor, gum_original_signal,"),
-        ("gum_exceptor_backend_replacement_signal, self, NULL);",
-         "// gum_exceptor_backend_replacement_signal, self, NULL);"),
-        ("gum_interceptor_replace (interceptor, gum_original_sigaction,",
-         "// gum_interceptor_replace (interceptor, gum_original_sigaction,"),
-        ("gum_exceptor_backend_replacement_sigaction, self, NULL);",
-         "// gum_exceptor_backend_replacement_sigaction, self, NULL);"),
-    ],
 }
+
+# gumexceptor-posix.c: disable signal/sigaction replacement.
+# Frida 17.12+ wraps hooks in GUM_EXCEPTOR_MODE_FULL and uses NULL/&options
+# instead of self/NULL. Block-level replacements avoid leaving broken C.
+EXCEPTOR_PATCH_VARIANTS = [
+    {
+        "name": "17.12+",
+        "attach_old": """  if (_gum_exceptor_get_mode () == GUM_EXCEPTOR_MODE_FULL)
+  {
+    gum_interceptor_begin_transaction (interceptor);
+
+    gum_interceptor_replace (interceptor, gum_original_signal,
+        gum_exceptor_backend_replacement_signal, NULL, &options);
+    gum_interceptor_replace (interceptor, gum_original_sigaction,
+        gum_exceptor_backend_replacement_sigaction, NULL, &options);
+
+    gum_interceptor_end_transaction (interceptor);
+  }""",
+        "attach_new": """  if (_gum_exceptor_get_mode () == GUM_EXCEPTOR_MODE_FULL)
+  {
+    /* signal/sigaction hooks disabled for anti-detection */
+  }""",
+        "detach_old": """  if (_gum_exceptor_get_mode () == GUM_EXCEPTOR_MODE_FULL)
+  {
+    gum_interceptor_begin_transaction (interceptor);
+
+    gum_interceptor_revert (interceptor, gum_original_signal);
+    gum_interceptor_revert (interceptor, gum_original_sigaction);
+
+    gum_interceptor_end_transaction (interceptor);
+  }""",
+        "detach_new": """  if (_gum_exceptor_get_mode () == GUM_EXCEPTOR_MODE_FULL)
+  {
+    /* signal/sigaction hook revert disabled */
+  }""",
+    },
+    {
+        "name": "17.7.x",
+        "attach_old": """  gum_interceptor_begin_transaction (interceptor);
+
+  gum_interceptor_replace (interceptor, gum_original_signal,
+      gum_exceptor_backend_replacement_signal, self, NULL);
+  gum_interceptor_replace (interceptor, gum_original_sigaction,
+      gum_exceptor_backend_replacement_sigaction, self, NULL);
+
+  gum_interceptor_end_transaction (interceptor);""",
+        "attach_new": """  /* signal/sigaction hooks disabled for anti-detection */""",
+        "detach_old": """  gum_interceptor_begin_transaction (interceptor);
+
+  gum_interceptor_revert (interceptor, gum_original_signal);
+  gum_interceptor_revert (interceptor, gum_original_sigaction);
+
+  gum_interceptor_end_transaction (interceptor);""",
+        "detach_new": """  /* signal/sigaction hook revert disabled */""",
+    },
+]
 
 
 # ============================================================================
