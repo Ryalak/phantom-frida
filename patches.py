@@ -68,11 +68,11 @@ def get_source_patches(name: str, cap_name: str) -> list[tuple[str, str]]:
         # --- JS engine thread name (visible in /proc/pid/task/tid/status) ---
         ('"gum-js-loop"', f'"{name}-js-loop"'),
 
+        # --- [E] Extended: internal Frida path references ---
+        ("'frida'", f"'{name}'"),  # Generic single-quoted 'frida'
+
         # --- [E] Extended: asset directory name ---
         ("/ 'frida'", f"/ '{name}'"),  # root_asset_dir = libdir / 'frida'
-        # NOTE: Do NOT add a generic "'frida'" -> "'{name}'" patch here.
-        # It breaks compat/meson.build (glib_flavor must stay 'upstream' or 'frida')
-        # and renames meson project()/install subdirs in unrelated subprojects.
     ]
 
 
@@ -103,8 +103,6 @@ def get_rollback_patches(name: str) -> list[tuple[str, str]]:
         (f"{name}-server.version", "frida-server.version"),
         (f"{name}-server.plist", "frida-server.plist"),
         (f"{name}-server.xcent", "frida-server.xcent"),
-        # compat/meson.build: glib_flavor enum passed to compat/build.py
-        (f"have_shared_glib ? 'upstream' : '{name}'", "have_shared_glib ? 'upstream' : 'frida'"),
     ]
 
 
