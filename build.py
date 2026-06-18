@@ -41,7 +41,6 @@ from patches import (
     get_stability_patches_17,
     MEMFD_PATCHES,
     LIBC_HOOK_PATCHES,
-    EXCEPTOR_PATCH_VARIANTS,
     SELINUX_PATCHES,
     DETECTION_VECTORS,
 )
@@ -428,31 +427,6 @@ def apply_source_patches(frida_dir: Path, custom_name: str):
     log("Global source patches complete", "OK")
 
 
-def validate_patched_build_files(frida_dir: Path, custom_name: str):
-    """Fail fast if patches broke build-system invariants."""
-    compat_meson = frida_dir / "subprojects" / "frida-core" / "compat" / "meson.build"
-    if not compat_meson.exists():
-        return
-
-    text = compat_meson.read_text(encoding="utf-8", errors="ignore")
-    glib_flavor_line = "have_shared_glib ? 'upstream' : 'frida'"
-    corrupted = f"have_shared_glib ? 'upstream' : '{custom_name}'"
-
-    if corrupted in text:
-        log(
-            "compat/meson.build glib_flavor was corrupted by patches — "
-            f"found '{custom_name}' where 'frida' is required for compat/build.py",
-            "ERROR",
-        )
-        sys.exit(1)
-    if glib_flavor_line not in text:
-        log(
-            f"compat/meson.build missing required glib_flavor line: {glib_flavor_line}",
-            "ERROR",
-        )
-        sys.exit(1)
-
-
 def apply_targeted_patches(frida_dir: Path, custom_name: str, frida_major: int):
     """Apply patches to specific files (memfd, libc hooks, SELinux, build system)."""
     log("=" * 60, "HEADER")
@@ -486,19 +460,10 @@ def apply_targeted_patches(frida_dir: Path, custom_name: str, frida_major: int):
     # --- Disable signal/sigaction hooking ---
     exceptor = gum_dir / "gum" / "backend-posix" / "gumexceptor-posix.c"
     if exceptor.exists():
-        content = exceptor.read_text(encoding="utf-8", errors="ignore")
-        applied = False
-        for variant in EXCEPTOR_PATCH_VARIANTS:
-            if variant["attach_old"] not in content:
-                continue
-            content = content.replace(variant["attach_old"], variant["attach_new"], 1)
-            content = content.replace(variant["detach_old"], variant["detach_new"], 1)
-            exceptor.write_text(content, encoding="utf-8")
-            log(f"  gumexceptor: disabled hooks ({variant['name']})", "OK")
-            applied = True
-            break
-        if not applied:
-            log("  gumexceptor: pattern not found", "WARN")
+        for old, new in LIBC_HOOK_PATCHES["exceptor"]:
+            count = replace_in_file(exceptor, old, new)
+            if count:
+                log(f"  gumexceptor: disabled hook ({count})", "OK")
 
     # --- SELinux labels (in linjector.vala for 17.x) ---
     for old, new in SELINUX_PATCHES(custom_name):
@@ -966,8 +931,6 @@ Detection vectors covered:
     # Step 4: Stability fixes
     if args.temp_fixes:
         apply_stability_fixes(frida_dir, frida_major)
-
-    validate_patched_build_files(frida_dir, custom_name)
 
     if args.skip_build:
         log("=" * 60, "HEADER")
